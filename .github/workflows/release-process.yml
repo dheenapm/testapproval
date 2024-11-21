@@ -28,24 +28,32 @@ jobs:
       - name: 'Create GitHub issue for release approval'
         id: create_issue
         run: |
-          RELEASE_VERSION=${{ github.event.inputs.release_version }}
-          APPLICATION_NAME=${{ github.event.inputs.application_name }}
-          QA_APPROVER=${{ github.event.inputs.qa_approver }}
-          SRE_APPROVER=${{ github.event.inputs.sre_approver }}
-          APP_OWNER_APPROVER=${{ github.event.inputs.app_owner_approver }}
-          
-          # Create issue to track approvals
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          APPLICATION_NAME="${{ github.event.inputs.application_name }}"
+          QA_APPROVER="${{ github.event.inputs.qa_approver }}"
+          SRE_APPROVER="${{ github.event.inputs.sre_approver }}"
+          APP_OWNER_APPROVER="${{ github.event.inputs.app_owner_approver }}"
+
+          # Create the issue body with instructions for the approvers
           ISSUE_BODY="### Release Approval for ${APPLICATION_NAME} - Version ${RELEASE_VERSION}\n\n#### Approval Needed:\n- QA Approval: @${QA_APPROVER}\n- SRE Approval: @${SRE_APPROVER}\n- App Owner Approval: @${APP_OWNER_APPROVER}\n\n#### Instructions:\n- Comment 'approve' to approve the release.\n- Comment 'reject' to reject the release.\n\nOnce all approvals are received, the deployment will proceed."
 
           ISSUE_TITLE="Release Approval Request for ${APPLICATION_NAME} ${RELEASE_VERSION}"
 
-          # Create the issue
-          curl -X POST \
+          echo "Creating issue for release approval..."
+          RESPONSE=$(curl -s -w "%{http_code}" -o response.json \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -d "{\"title\": \"$ISSUE_TITLE\", \"body\": \"$ISSUE_BODY\"}" \
-            https://api.github.com/repos/${{ github.repository }}/issues
+            https://api.github.com/repos/${{ github.repository }}/issues)
 
-          echo "Issue created for release approval."
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          if [ "$HTTP_STATUS" -ne 201 ]; then
+            echo "Error creating issue: HTTP $HTTP_STATUS"
+            cat response.json
+            exit 1
+          fi
+
+          ISSUE_NUMBER=$(jq '.number' response.json)
+          echo "Issue created successfully with number #$ISSUE_NUMBER"
 
   wait-for-approvals:
     needs: create-issue
@@ -54,48 +62,44 @@ jobs:
       - name: 'Wait for all approvals from approvers'
         id: check_approvals
         run: |
-          RELEASE_VERSION=${{ github.event.inputs.release_version }}
-          APPLICATION_NAME=${{ github.event.inputs.application_name }}
-          QA_APPROVER=${{ github.event.inputs.qa_approver }}
-          SRE_APPROVER=${{ github.event.inputs.sre_approver }}
-          APP_OWNER_APPROVER=${{ github.event.inputs.app_owner_approver }}
-          
-          # Get the issue details to check for comments
-          ISSUE_NUMBER=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/issues?state=open \
-            | jq '.[] | select(.title=="Release Approval Request for '${APPLICATION_NAME}' '${RELEASE_VERSION}'") | .number' | tr -d '"')
+          RELEASE_VERSION="${{ github.event.inputs.release_version }}"
+          APPLICATION_NAME="${{ github.event.inputs.application_name }}"
+          QA_APPROVER="${{ github.event.inputs.qa_approver }}"
+          SRE_APPROVER="${{ github.event.inputs.sre_approver }}"
+          APP_OWNER_APPROVER="${{ github.event.inputs.app_owner_approver }}"
 
+          # Retrieve the issue number from the previous job's output
+          ISSUE_NUMBER=${{ needs.create-issue.outputs.issue_number }}
           echo "Waiting for approvals in issue #${ISSUE_NUMBER}"
 
-          # Check for comments from approvers
+          # Poll for approval comments (simple check for "approve")
           APPROVALS="false"
           while [ "$APPROVALS" != "true" ]; do
             COMMENTS=$(curl -s \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               https://api.github.com/repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments)
 
-            # Check if all approvers have approved
-            if echo "$COMMENTS" | grep -q "@${QA_APPROVER}"; then
-              QA_APPROVAL=$(echo "$COMMENTS" | grep "@${QA_APPROVER}" | grep -i "approve")
+            # Check if all approvers have commented 'approve'
+            if echo "$COMMENTS" | grep -q "@${QA_APPROVER}" && echo "$COMMENTS" | grep -q "approve"; then
+              QA_APPROVAL=true
             else
-              QA_APPROVAL=""
+              QA_APPROVAL=false
             fi
 
-            if echo "$COMMENTS" | grep -q "@${SRE_APPROVER}"; then
-              SRE_APPROVAL=$(echo "$COMMENTS" | grep "@${SRE_APPROVER}" | grep -i "approve")
+            if echo "$COMMENTS" | grep -q "@${SRE_APPROVER}" && echo "$COMMENTS" | grep -q "approve"; then
+              SRE_APPROVAL=true
             else
-              SRE_APPROVAL=""
+              SRE_APPROVAL=false
             fi
 
-            if echo "$COMMENTS" | grep -q "@${APP_OWNER_APPROVER}"; then
-              APP_OWNER_APPROVAL=$(echo "$COMMENTS" | grep "@${APP_OWNER_APPROVER}" | grep -i "approve")
+            if echo "$COMMENTS" | grep -q "@${APP_OWNER_APPROVER}" && echo "$COMMENTS" | grep -q "approve"; then
+              APP_OWNER_APPROVAL=true
             else
-              APP_OWNER_APPROVAL=""
+              APP_OWNER_APPROVAL=false
             fi
 
             # If all approvers have approved, proceed to deployment
-            if [[ "$QA_APPROVAL" != "" && "$SRE_APPROVAL" != "" && "$APP_OWNER_APPROVAL" != "" ]]; then
+            if [ "$QA_APPROVAL" == "true" ] && [ "$SRE_APPROVAL" == "true" ] && [ "$APP_OWNER_APPROVAL" == "true" ]; then
               APPROVALS="true"
             else
               echo "Waiting for approvals from all approvers..."
@@ -103,7 +107,7 @@ jobs:
             fi
           done
 
-          echo "All approvals received."
+          echo "All approvals received. Proceeding with deployment."
 
   deploy:
     needs: wait-for-approvals
