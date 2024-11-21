@@ -1,0 +1,116 @@
+name: Release Process
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version'
+        required: true
+        default: '1.0.0'
+      application_name:
+        description: 'Application name'
+        required: true
+        default: 'my-app'
+      qa_approver:
+        description: 'QA approver username'
+        required: true
+      sre_approver:
+        description: 'SRE approver username'
+        required: true
+      app_owner_approver:
+        description: 'App Owner approver username'
+        required: true
+
+jobs:
+  create-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Create GitHub issue for release approval'
+        id: create_issue
+        run: |
+          RELEASE_VERSION=${{ github.event.inputs.release_version }}
+          APPLICATION_NAME=${{ github.event.inputs.application_name }}
+          QA_APPROVER=${{ github.event.inputs.qa_approver }}
+          SRE_APPROVER=${{ github.event.inputs.sre_approver }}
+          APP_OWNER_APPROVER=${{ github.event.inputs.app_owner_approver }}
+          
+          # Create issue to track approvals
+          ISSUE_BODY="### Release Approval for ${APPLICATION_NAME} - Version ${RELEASE_VERSION}\n\n#### Approval Needed:\n- QA Approval: @${QA_APPROVER}\n- SRE Approval: @${SRE_APPROVER}\n- App Owner Approval: @${APP_OWNER_APPROVER}\n\n#### Instructions:\n- Comment 'approve' to approve the release.\n- Comment 'reject' to reject the release.\n\nOnce all approvals are received, the deployment will proceed."
+
+          ISSUE_TITLE="Release Approval Request for ${APPLICATION_NAME} ${RELEASE_VERSION}"
+
+          # Create the issue
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -d "{\"title\": \"$ISSUE_TITLE\", \"body\": \"$ISSUE_BODY\"}" \
+            https://api.github.com/repos/${{ github.repository }}/issues
+
+          echo "Issue created for release approval."
+
+  wait-for-approvals:
+    needs: create-issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Wait for all approvals from approvers'
+        id: check_approvals
+        run: |
+          RELEASE_VERSION=${{ github.event.inputs.release_version }}
+          APPLICATION_NAME=${{ github.event.inputs.application_name }}
+          QA_APPROVER=${{ github.event.inputs.qa_approver }}
+          SRE_APPROVER=${{ github.event.inputs.sre_approver }}
+          APP_OWNER_APPROVER=${{ github.event.inputs.app_owner_approver }}
+          
+          # Get the issue details to check for comments
+          ISSUE_NUMBER=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/issues?state=open \
+            | jq '.[] | select(.title=="Release Approval Request for '${APPLICATION_NAME}' '${RELEASE_VERSION}'") | .number' | tr -d '"')
+
+          echo "Waiting for approvals in issue #${ISSUE_NUMBER}"
+
+          # Check for comments from approvers
+          APPROVALS="false"
+          while [ "$APPROVALS" != "true" ]; do
+            COMMENTS=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/${{ github.repository }}/issues/${ISSUE_NUMBER}/comments)
+
+            # Check if all approvers have approved
+            if echo "$COMMENTS" | grep -q "@${QA_APPROVER}"; then
+              QA_APPROVAL=$(echo "$COMMENTS" | grep "@${QA_APPROVER}" | grep -i "approve")
+            else
+              QA_APPROVAL=""
+            fi
+
+            if echo "$COMMENTS" | grep -q "@${SRE_APPROVER}"; then
+              SRE_APPROVAL=$(echo "$COMMENTS" | grep "@${SRE_APPROVER}" | grep -i "approve")
+            else
+              SRE_APPROVAL=""
+            fi
+
+            if echo "$COMMENTS" | grep -q "@${APP_OWNER_APPROVER}"; then
+              APP_OWNER_APPROVAL=$(echo "$COMMENTS" | grep "@${APP_OWNER_APPROVER}" | grep -i "approve")
+            else
+              APP_OWNER_APPROVAL=""
+            fi
+
+            # If all approvers have approved, proceed to deployment
+            if [[ "$QA_APPROVAL" != "" && "$SRE_APPROVAL" != "" && "$APP_OWNER_APPROVAL" != "" ]]; then
+              APPROVALS="true"
+            else
+              echo "Waiting for approvals from all approvers..."
+              sleep 30  # Wait for 30 seconds before checking again
+            fi
+          done
+
+          echo "All approvals received."
+
+  deploy:
+    needs: wait-for-approvals
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy the application
+        run: |
+          echo "Deploying version ${{ github.event.inputs.release_version }} of ${{
+            github.event.inputs.application_name }} after receiving all approvals."
+          # Add your deployment commands here (e.g., AWS, Azure, GCP deploy, etc.)
