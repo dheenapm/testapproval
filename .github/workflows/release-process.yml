@@ -17,6 +17,7 @@ on:
 
 permissions:
   issues: write  # Allow the GitHub token to create and manage issues
+  contents: read  # Ensure the GitHub token has access to repository contents and issues
 
 jobs:
   create-issue:
@@ -30,7 +31,7 @@ jobs:
           QA_APPROVER="${{ github.event.inputs.qa_approver }}"
 
           # Create the issue body with instructions for the approvers
-          ISSUE_BODY="### Release Approval for ${APPLICATION_NAME} - Version ${RELEASE_VERSION}\n\n#### Approval Needed:\n- QA Approval: @${QA_APPROVER}\n\n#### Instructions:\n- Comment 'approve' to approve the release.\n- Comment 'reject' to reject the release.\n\nOnce all approvals are received, the deployment will proceed."
+          ISSUE_BODY="### Release Approval for ${APPLICATION_NAME} - Version ${RELEASE_VERSION}\n\n#### Approval Needed:\n- QA Approval: @${QA_APPROVER}\n\n#### Instructions:\n- Comment 'approve' to approve the release.\n- Comment 'reject' to reject the release.\n\nOnce approval is received, the deployment will proceed."
 
           ISSUE_TITLE="Release Approval Request for ${APPLICATION_NAME} ${RELEASE_VERSION}"
 
@@ -49,6 +50,9 @@ jobs:
 
           ISSUE_NUMBER=$(jq '.number' response.json)
           echo "Issue created successfully with number #$ISSUE_NUMBER"
+          
+          # Output the issue number for future reference
+          echo "::set-output name=issue_number::${ISSUE_NUMBER}"
 
   wait-for-approvals:
     needs: create-issue
@@ -64,6 +68,9 @@ jobs:
           # Retrieve the issue number from the previous job's output
           ISSUE_NUMBER=${{ needs.create-issue.outputs.issue_number }}
           echo "Waiting for approval in issue #${ISSUE_NUMBER}"
+
+          # Add a brief delay to ensure the issue is fully created before checking comments
+          sleep 10  # Wait for 10 seconds before starting the polling loop
 
           # Poll for approval comments (simple check for "approve")
           APPROVAL="false"
