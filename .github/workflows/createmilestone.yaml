@@ -15,7 +15,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # Use the PAT here
         run: |
-          echo "Creating milestone..."
           response=$(curl -X POST https://api.github.com/repos/dheenapm/testapproval/milestones \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -24,8 +23,6 @@ jobs:
               "description": "This is a description of the milestone.",
               "due_on": "2024-12-31T23:59:59Z"
             }')
-          
-          echo "Response: $response"  # Debugging output
           
           # Check if the milestone creation was successful
           if echo "$response" | grep -q "id"; then
