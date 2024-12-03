@@ -1,0 +1,27 @@
+name: Create Milestone
+
+on:
+  push:
+    branches:
+      - main # Trigger the workflow when pushing to the main branch
+
+jobs:
+  create_milestone:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Create GitHub milestone
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GitHub's token to authenticate
+        run: |
+          curl -X POST https://api.github.com/repos/${{ github.repository }}/milestones \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -d '{
+              "title": "New Milestone",
+              "description": "This is a description of the milestone.",
+              "due_on": "2024-12-31T23:59:59Z" # Optional due date
+            }'
