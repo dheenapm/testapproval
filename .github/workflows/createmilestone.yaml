@@ -1,7 +1,7 @@
 name: Create GitHub Milestone
 
 on:
-  workflow_dispatch:  # This allows manual trigger
+  workflow_dispatch:  # Allows for manual triggering
 
 jobs:
   create_milestone:
@@ -15,11 +15,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -X POST https://api.github.com/repos/${{ github.repository }}/milestones \
+          echo "Creating milestone..."
+          response=$(curl -X POST https://api.github.com/repos/${{ github.repository }}/milestones \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -d '{
               "title": "New Milestone",
               "description": "This is a description of the milestone.",
               "due_on": "2024-12-31T23:59:59Z"
-            }'
+            }')
+          
+          echo "Response: $response"  # Debugging output
+          
+          # Check if the milestone creation was successful
+          if echo "$response" | grep -q "id"; then
+            echo "Milestone created successfully."
+          else
+            echo "Error creating milestone. Response: $response"
+            exit 1
+          fi
