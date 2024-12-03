@@ -16,7 +16,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # Use the PAT here
         run: |
           echo "Creating milestone..."
-          response=$(curl -X POST https://api.github.com/repos/${{ github.repository }}/milestones \
+          response=$(curl -X POST https://api.github.com/repos/dheenapm/testapproval/milestones \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -d '{
