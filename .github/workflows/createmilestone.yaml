@@ -13,7 +13,7 @@ jobs:
 
       - name: Create GitHub milestone
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}  # Use the PAT instead of GITHUB_TOKEN
         run: |
           echo "Creating milestone..."
           response=$(curl -X POST https://api.github.com/repos/${{ github.repository }}/milestones \
